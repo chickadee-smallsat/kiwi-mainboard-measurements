@@ -1,4 +1,4 @@
-# `kiwi-mainboard-measurements`
+# `kiwi-measurements`
 This `no_std` package provides generic representation of measurements
 acquired by the sensors on the Kiwi Mainboard.
 
@@ -6,7 +6,7 @@ acquired by the sensors on the Kiwi Mainboard.
 ## `Cargo.toml`:
 Add the following to `[dependencies]`:
 ```toml
-kiwi-mainboard-measurements = { version = "0.1.0" }
+kiwi-measurements = { version = "0.1" }
 ```
 
 ## Features
