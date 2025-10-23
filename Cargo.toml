@@ -4,6 +4,7 @@ version = "0.0.1"
 authors = ["Sunip K. Mukherjee <sunipkmukherjee@gmail.com>"]
 edition = "2024"
 description = "Package for representing measurements from various sensors on the Kiwi mainboard."
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 heapless = { version = "0.9", default-features = false, features = [
