@@ -18,6 +18,8 @@ const GYRO_CODE: u16 = 0x6e50;
 const MAG_CODE: u16 = 0x9A61;
 const TEMP_CODE: u16 = 0x7E70;
 const BARO_CODE: u16 = 0xB480;
+const HUMI_CODE: u16 = 0xF0AC;
+const LUX_CODE: u16 = 0x1A2B;
 
 /// Unified measurement enum
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +36,10 @@ pub enum CommonMeasurement {
     Temp(heapless::String<8>, f32),
     /// Temperature, pressure and altitude measurement
     Baro(f32, f32, f32),
+    /// Temperature (degree Celsius), humidity (%), AQI measurement
+    Humi(f32, f32, f32),
+    /// Ambient light measurement in lux
+    Lux(heapless::String<8>, f32),
 }
 
 /// Size of the common measurement in bytes, as returned by [`into`](CommonMeasurement::into)
@@ -58,6 +64,8 @@ impl CommonMeasurement {
             CommonMeasurement::Mag(_, _, _) => MAG_CODE,
             CommonMeasurement::Temp(_, _) => TEMP_CODE,
             CommonMeasurement::Baro(_, _, _) => BARO_CODE,
+            CommonMeasurement::Humi(_, _, _) => HUMI_CODE,
+            CommonMeasurement::Lux(_, _) => LUX_CODE,
         };
         bytes[0..2].copy_from_slice(&code.to_le_bytes());
         match self {
@@ -86,6 +94,17 @@ impl CommonMeasurement {
                 bytes[2..6].copy_from_slice(&temp.to_le_bytes());
                 bytes[6..10].copy_from_slice(&pres.to_le_bytes());
                 bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&alt.to_le_bytes());
+            }
+            CommonMeasurement::Humi(temp, humi, aqi) => {
+                bytes[2..6].copy_from_slice(&temp.to_le_bytes());
+                bytes[6..10].copy_from_slice(&humi.to_le_bytes());
+                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&aqi.to_le_bytes());
+            }
+            CommonMeasurement::Lux(label, value) => {
+                let label_bytes = label.as_bytes();
+                let len = label_bytes.len().min(8);
+                bytes[2..2 + len].copy_from_slice(&label_bytes[..len]);
+                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&value.to_le_bytes());
             }
         }
         bytes
@@ -146,6 +165,22 @@ impl TryFrom<&[u8]> for CommonMeasurement {
                 let p = f32::from_le_bytes(value[6..10].try_into().unwrap());
                 let a = f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
                 CommonMeasurement::Baro(t, p, a)
+            }
+            HUMI_CODE => {
+                let t = f32::from_le_bytes(value[2..6].try_into().unwrap());
+                let h = f32::from_le_bytes(value[6..10].try_into().unwrap());
+                let a = f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                CommonMeasurement::Humi(t, h, a)
+            }
+            LUX_CODE => {
+                let label_end = value[2..10].iter().position(|&b| b == 0).unwrap_or(8);
+                let label: String<8> = String::try_from(
+                    core::str::from_utf8(&value[2..2 + label_end]).unwrap_or("Unknown"),
+                )
+                .map_err(|_| CommonMeasurementError::String)?;
+                let value =
+                    f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                CommonMeasurement::Lux(label, value)
             }
             _ => return Err(CommonMeasurementError::Type),
         };
@@ -229,7 +264,7 @@ mod tests {
     #[test]
     fn test_common_measurement_serialization() {
         let original = CommonMeasurement::Temp(heapless::String::try_from("CPU").unwrap(), 36.5);
-        let bytes: [u8; COMMON_MEASUREMENT_SIZE] = original.clone().into();
+        let bytes: [u8; _] = original.clone().into();
         let deserialized = CommonMeasurement::try_from(&bytes[..]).unwrap();
         assert_eq!(original, deserialized);
     }
@@ -240,7 +275,7 @@ mod tests {
             measurement: CommonMeasurement::Accel(0.1, 0.2, 0.3),
             timestamp: 123456789,
         };
-        let bytes: [u8; SINGLE_MEASUREMENT_SIZE] = original.clone().into();
+        let bytes: [u8; _] = original.clone().into();
         let deserialized = SingleMeasurement::try_from(&bytes[..]).unwrap();
         assert_eq!(original, deserialized);
     }
@@ -251,11 +286,27 @@ mod tests {
             measurement: CommonMeasurement::Gyro(1.0, 2.0, 3.0),
             timestamp: 987654321,
         };
-        let mut bytes: [u8; SINGLE_MEASUREMENT_SIZE] = original.into();
+        let mut bytes: [u8; _] = original.into();
         // Corrupt a byte to simulate CRC mismatch
         bytes[5] ^= 0xFF;
         let result = SingleMeasurement::try_from(&bytes[..]);
         assert!(matches!(result, Err(CommonMeasurementError::CrcMismatch)));
+    }
+
+    #[test]
+    fn test_common_measurement_humi() {
+        let original = CommonMeasurement::Humi(25.0, 60.0, 42.0);
+        let bytes: [u8; _] = original.clone().into();
+        let deserialized = CommonMeasurement::try_from(&bytes[..]).unwrap();
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_common_measurement_lux() {
+        let original = CommonMeasurement::Lux(heapless::String::try_from("Room").unwrap(), 350.0);
+        let bytes: [u8; _] = original.clone().into();
+        let deserialized = CommonMeasurement::try_from(&bytes[..]).unwrap();
+        assert_eq!(original, deserialized);
     }
 
     #[test]
